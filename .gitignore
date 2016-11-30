@@ -1,0 +1,10 @@
+*.txt
+
+
+# Image Files
+*.png
+*.jp*g
+images/
+
+# Torch saved files
+*.t7
