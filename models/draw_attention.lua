@@ -35,7 +35,10 @@ function DrawAttention:__init(options)
   self.unrolled_model = clones
 
   -- Add the learned bias to the model
-  -- self.unrolled_model[1] = model_utils.addLearnedBias(options, self.unrolled_model[1], 'training')
+  self.unrolled_model[1] = model_utils.addLearnedBias(options, self.unrolled_model[1], 'training')
+
+
+  -- Restore the model from stored files
   if options.restore then
     self:load_model(options)
   end
@@ -160,9 +163,38 @@ function DrawAttention:backward(batch, gradLossX, output)
 end
 
 function DrawAttention:load_model(options)
+  local model_folder = options.model_folder
+  local draw_path = paths.concat(model_folder, 'draw_t0.t7')
+
+  print('===> Loading DRAW model from file...')
+  local stored_model = torch.load(draw_path)
+
+  local storedParams, _ = stored_model:parameters()
+
+  local modelParams, _ = self.unrolled_model[1]:parameters()
+
+  for i = 1, #storedParams do
+    modelParams[i]:copy(storedParams[i])
+  end
+
+  print('===> Finished loading the model...')
+  return
 end
 
 function DrawAttention:save_model(options)
+  local params, _ = self.unrolled_model[1]:parameters()
+
+  local model_folder = options.model_folder
+  if not paths.dirp(model_folder) and not paths.mkdir(model_folder) then
+    cmd:error('Error: Unable to create model directory: ' .. model_folder '\n')
+  end
+  print('====> Saving DRAW model at t = 1...')
+  local draw_path = paths.concat(model_folder, 'draw_t0.t7')
+  torch.save(draw_path, self.unrolled_model[1])
+
+  print('====> Saving decoder...')
+  local decoder_path = paths.concat(model_folder, 'decoder.t7')
+  torch.save(decoder_path, self.decoder)
 end
 
 function DrawAttention:create_model(options)
