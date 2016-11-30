@@ -146,7 +146,6 @@ for e = 1, options.maxEpochs do
   lossSum = 0
   N = 0
 
-  sys.tic()
   -- Iterate over batches
    for i = 1, train_size, batch_size do
     -- Necessary check in case the batch size does not divide the
@@ -165,28 +164,15 @@ for e = 1, options.maxEpochs do
 
   end
 
-  --[[ -- TO DO: Finish model storage ]]
-  -- if e % options.save_interval then
+  -- TO DO: Finish model storage
+  if e % options.save_interval == 0 then
+    model:save_model(options)
+  end
 
-    -- model:save_model()
-    -- torch.save(, )
-  --[[ end ]]
-
-  t = sys.toc()
   print('Epoch ' .. e .. ' loss = ' .. lossSum / N)
-  print('Time elapsed = ' .. t)
 
   loss_logger:add{lossSum / N}
-  -- testTheta:copy(theta)
-  -- -- Evaluation using some of the test images.
-  -- local xHat = test_net:forward(test_sample)
 
-  -- local reconstructed = image.toDisplayTensor(xHat:narrow(1, 1, batch_size), 2, img_per_row)
-  -- reconstructed:resize(1, table.unpack(reconstructed:size():totable()))
-
-  -- The image used to compare the true and the reconstructed output
-  -- local img = torch.cat(reconstructed, true_img, #reconstructed:size())
-  -- local img = torch.cat(reconstructed, true_img, 1)
   if options.display or options.save_image then
     local test_output, read_att_params, write_att_params =
       model:forward(test_sample)
