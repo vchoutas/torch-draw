@@ -8,3 +8,4 @@ images/
 
 # Torch saved files
 *.t7
+trained_models/
