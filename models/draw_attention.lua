@@ -197,11 +197,11 @@ function DrawAttention:save_model(options)
 
   print('====> Saving the initial canvas...')
   local canvas0Path = paths.concat(model_folder, 'canvas0.t7')
-  torch.save(canvas0Path, learnedInitStates[0])
+  torch.save(canvas0Path, learnedInitStates[1])
 
   print('====> Saving the initial decoder state...')
   local hDec0 = paths.concat(model_folder, 'hDec0.t7')
-  torch.save(canvas0Path, learnedInitStates[2])
+  torch.save(hDec0, learnedInitStates[3])
 
   print('====> Saving decoder...')
   local decoder_path = paths.concat(model_folder, 'decoder.t7')
