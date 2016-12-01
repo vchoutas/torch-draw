@@ -35,7 +35,8 @@ function DrawAttention:__init(options)
   self.unrolled_model = clones
 
   -- Add the learned bias to the model
-  self.unrolled_model[1] = model_utils.addLearnedBias(options, self.unrolled_model[1], 'training')
+  self.unrolled_model[1], self.learnedParams =
+    model_utils.addLearnedBias(options, self.unrolled_model[1], 'training')
 
 
   -- Restore the model from stored files
@@ -191,6 +192,16 @@ function DrawAttention:save_model(options)
   print('====> Saving DRAW model at t = 1...')
   local draw_path = paths.concat(model_folder, 'draw_t0.t7')
   torch.save(draw_path, self.unrolled_model[1])
+
+  local learnedInitStates, _  = self.learnedParams:parameters()
+
+  print('====> Saving the initial canvas...')
+  local canvas0Path = paths.concat(model_folder, 'canvas0.t7')
+  torch.save(canvas0Path, learnedInitStates[0])
+
+  print('====> Saving the initial decoder state...')
+  local hDec0 = paths.concat(model_folder, 'hDec0.t7')
+  torch.save(canvas0Path, learnedInitStates[2])
 
   print('====> Saving decoder...')
   local decoder_path = paths.concat(model_folder, 'decoder.t7')
