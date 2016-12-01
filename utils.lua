@@ -28,7 +28,7 @@ end
 function utils.storeSeq(folder, img_seq)
   for t = 1, #img_seq do
     local img_name = paths.concat(folder, 'seq' .. t .. '.png')
-    image.save(img_name,  img_seq[t])
+    image.save(img_name, img_seq[t])
   end
 end
 
