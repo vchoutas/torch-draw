@@ -122,17 +122,17 @@ local optimState = {
 
 local img_folder = options.img_folder
 if not paths.dirp(img_folder) and not paths.mkdir(img_folder) then
-  cmd:error('Error: Unable to create image directory: ' .. img_folder '\n')
+  error('Error: Unable to create image directory: ' .. img_folder '\n')
 end
 
 local seq_folder = paths.concat(img_folder, options.dataset)
 if not paths.dirp(seq_folder) and not paths.mkdir(seq_folder) then
-  cmd:error('Error: Unable to create image directory: ' .. seq_folder '\n')
+  error('Error: Unable to create image directory: ' .. seq_folder '\n')
 end
 
 local model_folder = options.model_folder
 if not paths.dirp(model_folder) and not paths.mkdir(model_folder) then
-  cmd:error('Error: Unable to create model directory: ' .. model_folder '\n')
+  error('Error: Unable to create model directory: ' .. model_folder '\n')
 end
 
 
@@ -194,14 +194,16 @@ for e = 1, options.maxEpochs do
       local write_img = image.toDisplayTensor(write_seq[t], 2, img_per_row)
       local img = image.toDisplayTensor({read_img, write_img}, 5)
 
-      if window ~= nil then
-        window = image.display{image=img, win=window}
-      else
-        window = image.display(img)
+      if options.display then
+        if window ~= nil then
+          window = image.display{image=img, win=window}
+        else
+          window = image.display(img)
+        end
+        sys.sleep(0.1)
       end
       img_seq[t] = img
 
-      sys.sleep(0.1)
     end
 
     if options.save_image then
