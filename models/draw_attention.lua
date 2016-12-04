@@ -38,7 +38,6 @@ function DrawAttention:__init(options)
   self.unrolled_model[1], self.learnedParams =
     model_utils.addLearnedBias(options, self.unrolled_model[1], 'training')
 
-
   -- Restore the model from stored files
   if options.restore then
     self:load_model(options)
@@ -50,7 +49,8 @@ function DrawAttention:__init(options)
 end
 
 function DrawAttention:getParameters()
-  return self.draw:getParameters()
+
+  return self.sharedContainer:getParameters()
 end
 
 
@@ -88,12 +88,17 @@ function DrawAttention:initConstTensors(options)
   -- Will be passed to the attention paramters in the backward pass.
   gradTensors[#gradTensors + 1] = torch.Tensor(batch_size, 4):zero()
 
+  gradTensors[#gradKeys + 2] = torch.Tensor():resizeAs(gradTensors[#gradKeys + 1])
+  gradTensors[#gradKeys + 2]:copy(gradTensors[#gradKeys + 1])
+
   if use_cuda then
     for i = 1, #gradTensors do
       gradTensors[i] = gradTensors[i]:cuda()
     end
   end
 
+
+  gradTensors[#gradTensors - 1] = torch.split(gradTensors[#gradTensors - 1], 1, 2)
   gradTensors[#gradTensors] = torch.split(gradTensors[#gradTensors], 1, 2)
 
   self.gradTensors = gradTensors
@@ -152,7 +157,7 @@ function DrawAttention:backward(batch, gradLossX, output)
       h_dec[t - 1], c_dec[t - 1]}
 
     local gradOutput = {gradCanvas[t], dh_enc[t], dc_enc[t], dh_dec[t], dc_dec[t],
-      gradMu[t], gradVar[t], self.gradTensors[5], self.gradTensors[5]}
+      gradMu[t], gradVar[t], self.gradTensors[5], self.gradTensors[6]}
     _, gradCanvas[t - 1], dh_enc[t - 1], dc_enc[t - 1], dh_dec[t - 1], dc_dec[t - 1] =
       table.unpack(self.unrolled_model[t]:backward(inputs, gradOutput))
 
