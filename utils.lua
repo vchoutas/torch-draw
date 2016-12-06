@@ -74,7 +74,7 @@ function utils.drawAttentionRect(N, input, att_params, line_color)
     local x1, x2 = utils.center2Corners(gx[i]:squeeze(), delta[i]:squeeze(), N, width)
     local y1, y2 = utils.center2Corners(gy[i]:squeeze(), delta[i]:squeeze(), N, height)
 
-    output[i] = image.drawRect(output[i], x1, y1, x2, y2, rectOptions)
+    image.drawRect(output[i], x1, y1, x2, y2, rectOptions)
   end
 
   return output

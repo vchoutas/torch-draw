@@ -90,7 +90,7 @@ local function feval(params)
 
   xHat = canvas2Img:forward(canvas[T])
   -- Calculate Reconstruction loss
-  local lossX = criterion:forward(xHat, batch)
+  local lossX = criterion:forward(xHat + 1e-8, batch)
 
   local mu = torch.cat(forward_output[#forward_output - 1])
   -- local logvar = torch.cat(forward_output[#forward_output]):view(batch_size, T, -1)
@@ -179,14 +179,16 @@ for e = 1, options.maxEpochs do
 
     local canvas_seq = {}
     for t = 1, T do
-      canvas_seq[t] = canvas2Img:forward(test_output[1][t])
+      local current_canvas = canvas2Img:forward(test_output[1][t])
+      canvas_seq[t] = torch.Tensor(table.unpack(current_canvas:size():totable()))
+      canvas_seq[t]:copy(current_canvas)
     end
 
     local read_seq = utils.drawReadSeq(T, read_size, test_sample,
-      read_att_params, {255, 0, 0})
+      read_att_params, {0, 255, 0})
 
     local write_seq = utils.drawWriteSeq(T, write_size, canvas_seq,
-      write_att_params, {0, 255, 0})
+      write_att_params, {255, 0, 0})
 
     local img_seq = {}
     for t = 1, T do
@@ -203,13 +205,13 @@ for e = 1, options.maxEpochs do
         sys.sleep(0.1)
       end
       img_seq[t] = img
-
     end
 
     if options.save_image then
       utils.storeSeq(seq_folder, img_seq)
     end
   end
-
-
 end
+
+-- Store the final model
+model:save_model(options)
