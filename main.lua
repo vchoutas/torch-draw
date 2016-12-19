@@ -15,14 +15,6 @@ local options = opt_parser.parse(arg)
 
 local use_cuda = options.backend == 'cuda' or options.backend == 'cudnn'
 
-if use_cuda then
-  require('cutorch')
-  require('cunn')
-  if options.backend == 'cudnn' then
-    require('cudnn')
-  end
-end
-
 print('====> Loading the data...')
 print('====> Using ' .. options.dataset .. ' dataset...')
 local dataloader = require('dataloaders/dataloader')
