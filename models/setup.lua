@@ -12,6 +12,14 @@ function M.setup(options, use_cuda, mode)
     print('===> Creating DRAW model..')
   end
 
+  if use_cuda then
+    require('cutorch')
+    require('cunn')
+    if options.backend == 'cudnn' then
+      require('cudnn')
+    end
+  end
+
   if mode == nil then
     mode = 'training'
   end
