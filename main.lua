@@ -120,7 +120,11 @@ local optimState = {
   learningRateDecay = options.lrDecay,
 }
 
-local img_folder = options.img_folder
+
+local use_attention = options.use_attention == 'true'
+
+local img_folder = paths.concat(options.img_folder, use_attention and 'attention' or
+  'no_attention')
 if not paths.dirp(img_folder) and not paths.mkdir(img_folder) then
   error('Error: Unable to create image directory: ' .. img_folder '\n')
 end
@@ -140,7 +144,6 @@ local train_size = dataset.train.size
 
 local img_per_row = options.img_per_row
 
-local use_attention = options.use_attention == 'true'
 
 local test_sample = dataset.train.data:narrow(1, 1, options.batch_size)
 
