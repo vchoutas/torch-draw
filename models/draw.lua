@@ -48,6 +48,8 @@ function Draw:__init(options)
 
   self.sharedContainer = model_utils.create_shared_container(self.unrolled_model)
   self.sharedContainer = model_utils.convert_model(options, self.sharedContainer)
+  self.encoder = model_utils.convert_model(options, self.encoder)
+  self.decoder = model_utils.convert_model(options, self.decoder)
 
   nngraph.setDebug(options.debug == 'true')
 end
@@ -63,12 +65,12 @@ function Draw:getParameters()
   local learnedBias_params, _ = self.learnedParams:parameters()
 
   for i = 1, #learnedBias_params do
-    learnedBias_params[i] = model_params[i]
+    learnedBias_params[i]:set(model_params[i])
   end
 
   local encoder_offset = #learnedBias_params
   for i = 1, #enc_params do
-    enc_params[i] = model_params[i + encoder_offset]
+    enc_params[i]:set(model_params[i + encoder_offset])
   end
 
   -- The offset for the decoder parameter tensors
@@ -77,7 +79,7 @@ function Draw:getParameters()
   -- and the variance for the latent variable sampling.
   local dec_offset = #learnedBias_params + #enc_params + 4
   for i = 1, #dec_params do
-    dec_params[i] = model_params[i + dec_offset]
+    dec_params[i]:set(model_params[i + dec_offset])
   end
 
   return params, gradParams
@@ -211,7 +213,7 @@ function Draw:backward(batch, gradLossX, output)
 end
 
 function Draw:load_model(options)
-  local model_folder = paths.concat(options.model_folder, self.use_attention
+  local model_folder = paths.concat(self.model_folder, self.use_attention
     and 'attention' or 'no_attention')
   local draw_path = paths.concat(model_folder, 'draw_t0.t7')
 
