@@ -15,14 +15,6 @@ local options = opt_parser.parse(arg)
 
 local use_cuda = options.backend == 'cuda' or options.backend == 'cudnn'
 
-if use_cuda then
-  require('cutorch')
-  require('cunn')
-  if options.backend == 'cudnn' then
-    require('cudnn')
-  end
-end
-
 print('====> Loading the data...')
 print('====> Using ' .. options.dataset .. ' dataset...')
 local dataloader = require('dataloaders/dataloader')
@@ -120,7 +112,11 @@ local optimState = {
   learningRateDecay = options.lrDecay,
 }
 
-local img_folder = options.img_folder
+
+local use_attention = options.use_attention == 'true'
+
+local img_folder = paths.concat(options.img_folder, use_attention and 'attention' or
+  'no_attention')
 if not paths.dirp(img_folder) and not paths.mkdir(img_folder) then
   error('Error: Unable to create image directory: ' .. img_folder '\n')
 end
@@ -139,6 +135,7 @@ end
 local train_size = dataset.train.size
 
 local img_per_row = options.img_per_row
+
 
 local test_sample = dataset.train.data:narrow(1, 1, options.batch_size)
 
@@ -184,15 +181,29 @@ for e = 1, options.maxEpochs do
       canvas_seq[t]:copy(current_canvas)
     end
 
-    local read_seq = utils.drawReadSeq(T, read_size, test_sample,
-      read_att_params, {0, 255, 0})
+    local read_seq
+    if use_attention then
+      read_seq = utils.drawReadSeq(T, read_size, test_sample,
+        read_att_params, {0, 255, 0})
+    end
 
-    local write_seq = utils.drawWriteSeq(T, write_size, canvas_seq,
-      write_att_params, {255, 0, 0})
+    local write_seq
+    if use_attention then
+      write_seq = utils.drawWriteSeq(T, write_size, canvas_seq,
+        write_att_params, {255, 0, 0})
+    else
+      write_seq = canvas_seq
+    end
 
     local img_seq = {}
     for t = 1, T do
-      local read_img = image.toDisplayTensor(read_seq[t], 2, img_per_row)
+      local read_img
+      if use_attention then
+        read_img = image.toDisplayTensor(read_seq[t], 2, img_per_row)
+      else
+        read_img = image.toDisplayTensor(test_sample, 2, img_per_row)
+      end
+
       local write_img = image.toDisplayTensor(write_seq[t], 2, img_per_row)
       local img = image.toDisplayTensor({read_img, write_img}, 5)
 

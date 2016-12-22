@@ -2,7 +2,6 @@ require('nn')
 require('nngraph')
 require('dpnn')
 
--- nngraph.setDebug(true)
 
 local lstm_factory = require('../modules/lstm')
 local model_utils = require('models/model_utils')
@@ -13,9 +12,13 @@ require('../modules/Num2Tensor')
 require('../modules/ExpandAsTensor')
 
 local M = {}
-local DrawAttention = torch.class('DrawAttention', M)
+local Draw = torch.class('Draw', M)
 
-function DrawAttention:__init(options)
+function Draw:__init(options)
+  self.options = options
+
+  self.use_attention = options.use_attention == 'true'
+
   self:create_model(options)
 
   self:initConstTensors(options)
@@ -45,16 +48,45 @@ function DrawAttention:__init(options)
 
   self.sharedContainer = model_utils.create_shared_container(self.unrolled_model)
   self.sharedContainer = model_utils.convert_model(options, self.sharedContainer)
+  self.encoder = model_utils.convert_model(options, self.encoder)
+  self.decoder = model_utils.convert_model(options, self.decoder)
 
+  nngraph.setDebug(options.debug == 'true')
 end
 
-function DrawAttention:getParameters()
+function Draw:getParameters()
+  -- Get the flattened parameter tensors.
+  local params, gradParams = self.sharedContainer:getParameters()
 
-  return self.sharedContainer:getParameters()
+  -- Get the parameters of the full model
+  local model_params, _ = self.sharedContainer:parameters()
+  local enc_params, _ = self.encoder:parameters()
+  local dec_params, _ = self.decoder:parameters()
+  local learnedBias_params, _ = self.learnedParams:parameters()
+
+  for i = 1, #learnedBias_params do
+    learnedBias_params[i]:set(model_params[i])
+  end
+
+  local encoder_offset = #learnedBias_params
+  for i = 1, #enc_params do
+    enc_params[i]:set(model_params[i + encoder_offset])
+  end
+
+  -- The offset for the decoder parameter tensors
+  -- The number 4 is the number of tensors used for the
+  -- parameters of the linear layers that calculate the mean
+  -- and the variance for the latent variable sampling.
+  local dec_offset = #learnedBias_params + #enc_params + 4
+  for i = 1, #dec_params do
+    dec_params[i]:set(model_params[i + dec_offset])
+  end
+
+  return params, gradParams
 end
 
 
-function DrawAttention:initConstTensors(options)
+function Draw:initConstTensors(options)
   keys = {'canvas', 'h_enc', 'c_enc', 'h_dec', 'c_dec'}
   -- The initial states of the recurrent networks
   local startTensors = {}
@@ -106,7 +138,7 @@ function DrawAttention:initConstTensors(options)
   return
 end
 
-function DrawAttention:forward(batch)
+function Draw:forward(batch)
 
   local canvas = {[0] = self.startTensors['canvas']}
   local h_enc = {[0] = self.startTensors['h_enc']}
@@ -114,8 +146,11 @@ function DrawAttention:forward(batch)
   local h_dec = {[0] = self.startTensors['h_dec']}
   local c_dec = {[0] = self.startTensors['c_dec']}
 
-  local read_att_params = {}
-  local write_att_params = {}
+  local read_att_params, write_att_params
+  if self.use_attention then
+    read_att_params = {}
+    write_att_params = {}
+  end
 
   local mu = {}
   local logvar = {}
@@ -126,15 +161,20 @@ function DrawAttention:forward(batch)
     local inputs = {batch, canvas[t - 1], h_enc[t - 1], c_enc[t - 1],
       h_dec[t - 1], c_dec[t - 1]}
 
-    canvas[t], h_enc[t], c_enc[t], h_dec[t], c_dec[t], mu[t], logvar[t],
-    read_att_params[t], write_att_params[t] =
-      table.unpack(self.unrolled_model[t]:forward(inputs))
-  end
+      if self.use_attention then
+        canvas[t], h_enc[t], c_enc[t], h_dec[t], c_dec[t], mu[t], logvar[t],
+          read_att_params[t], write_att_params[t] =
+          table.unpack(self.unrolled_model[t]:forward(inputs))
+      else
+        canvas[t], h_enc[t], c_enc[t], h_dec[t], c_dec[t], mu[t], logvar[t] =
+          table.unpack(self.unrolled_model[t]:forward(inputs))
+      end
+    end
 
   return {canvas, h_enc, c_enc, h_dec, c_dec, mu, logvar}, read_att_params, write_att_params
 end
 
-function DrawAttention:backward(batch, gradLossX, output)
+function Draw:backward(batch, gradLossX, output)
 
   canvas, h_enc, c_enc, h_dec, c_dec, mu, logvar = table.unpack(output)
 
@@ -154,22 +194,27 @@ function DrawAttention:backward(batch, gradLossX, output)
 
   for t = self.T, 1, -1 do
     local inputs = {batch, canvas[t - 1], h_dec[t - 1], c_dec[t - 1],
-      h_dec[t - 1], c_dec[t - 1]}
+    h_dec[t - 1], c_dec[t - 1]}
 
     local gradOutput = {gradCanvas[t], dh_enc[t], dc_enc[t], dh_dec[t], dc_dec[t],
-      gradMu[t], gradVar[t], self.gradTensors[5], self.gradTensors[6]}
+      gradMu[t], gradVar[t]}
+    if self.use_attention then
+      gradOutput[#gradOutput + 1] = self.gradTensors[5]
+      gradOutput[#gradOutput + 1] = self.gradTensors[6]
+    end
     _, gradCanvas[t - 1], dh_enc[t - 1], dc_enc[t - 1], dh_dec[t - 1], dc_dec[t - 1] =
       table.unpack(self.unrolled_model[t]:backward(inputs, gradOutput))
 
-      if t > 1 then
-        gradMu[t - 1] = mu[t - 1] / numBatchElements
-        gradVar[t - 1] = 0.5 * (torch.exp(logvar[t - 1]) - 1) / numBatchElements
-      end
+    if t > 1 then
+      gradMu[t - 1] = mu[t - 1] / numBatchElements
+      gradVar[t - 1] = 0.5 * (torch.exp(logvar[t - 1]) - 1) / numBatchElements
+    end
   end
 end
 
-function DrawAttention:load_model(options)
-  local model_folder = options.model_folder
+function Draw:load_model(options)
+  local model_folder = paths.concat(self.model_folder, self.use_attention
+    and 'attention' or 'no_attention')
   local draw_path = paths.concat(model_folder, 'draw_t0.t7')
 
   print('===> Loading DRAW model from file...')
@@ -187,10 +232,12 @@ function DrawAttention:load_model(options)
   return
 end
 
-function DrawAttention:save_model(options)
+function Draw:save_model(options)
   local params, _ = self.unrolled_model[1]:parameters()
 
-  local model_folder = options.model_folder
+  local model_folder = paths.concat(options.model_folder, self.use_attention
+    and 'attention' or 'no_attention')
+
   if not paths.dirp(model_folder) and not paths.mkdir(model_folder) then
     cmd:error('Error: Unable to create model directory: ' .. model_folder '\n')
   end
@@ -213,7 +260,7 @@ function DrawAttention:save_model(options)
   torch.save(decoder_path, self.decoder)
 end
 
-function DrawAttention:create_model(options)
+function Draw:create_model(options)
   -- Constant initialization
   local read_size = options.read_size
   local write_size = options.write_size
@@ -246,10 +293,13 @@ function DrawAttention:create_model(options)
 
   local next_h_enc = nn.SelectTable(1)(encoder_out)
   local next_c_enc = nn.SelectTable(2)(encoder_out)
-  local read_att_params = nn.SelectTable(3)(encoder_out)
+  local read_att_params
+  if self.use_attention then
+    read_att_params = nn.SelectTable(3)(encoder_out)
+  end
 
 
-  local sample = self:Sampler(hidden_size, read_size, latent_size)(next_h_enc):annotate{
+  local sample = self:Sampler(hidden_size, latent_size)(next_h_enc):annotate{
     name = 'Sampler'}
 
   local z = nn.SelectTable(1)(sample)
@@ -265,12 +315,20 @@ function DrawAttention:create_model(options)
   local new_canvas = nn.SelectTable(1)(decoder_out)
   local next_h_dec = nn.SelectTable(2)(decoder_out)
   local next_c_dec = nn.SelectTable(3)(decoder_out)
-  local write_att_params = nn.SelectTable(4)(decoder_out)
+
+  local write_att_params
+  if self.use_attention then
+    write_att_params = nn.SelectTable(4)(decoder_out)
+  end
 
   local draw_inputs = {x, canvas, h_enc, c_enc, h_dec, c_dec}
   local draw_outputs = {new_canvas, next_h_enc, next_c_enc, next_h_dec, next_c_dec,
-    mu_z, log_sigma_z,
-    read_att_params, write_att_params}
+    mu_z, log_sigma_z}
+  if self.use_attention then
+    draw_outputs[#draw_outputs + 1] = read_att_params
+    draw_outputs[#draw_outputs + 1] = write_att_params
+  end
+
 
   local draw = nn.gModule(draw_inputs, draw_outputs)
 
@@ -281,15 +339,26 @@ function DrawAttention:create_model(options)
   return
 end
 
-function DrawAttention:create_encoder(options)
+function Draw:create_encoder(options)
   -- Constant initialization
+
   local read_size = options.read_size
+
   local hidden_size = options.hidden_size
 
   -- The size of each image
   local img_size = options.img_size
 
-  local encoder_rnn = lstm_factory.create_lstm(options, hidden_size + 2 * read_size * read_size, hidden_size)
+  local height = img_size[#img_size - 1]
+  local width = img_size[#img_size]
+
+  local enc_input_size = hidden_size
+  if self.use_attention then
+    enc_input_size = enc_input_size + 2 * read_size * read_size
+  else
+    enc_input_size = enc_input_size + 2 * height * width
+  end
+  local encoder_rnn = lstm_factory.create_lstm(options, enc_input_size, hidden_size)
 
   -- Encoder Graph Module Construction
   local x = nn.Identity()()
@@ -303,32 +372,60 @@ function DrawAttention:create_encoder(options)
 
   local xHat = self:ErrorImage()({x, canvas}):annotate{name = 'Error Image'}
 
-  local read = self:read(options, img_size, read_size)({x, xHat, h_dec})
-    :annotate{name = 'Read'}
+  local read, read_node
+
+  local read_node = self:read(options, img_size, read_size)
+  if self.use_attention then
+    read = read_node({x, xHat, h_dec})
+  else
+    read = read_node({x, xHat})
+  end
+
+  read:annotate{name = 'Read'}
+
 
   -- Read Head finished
   -- Forward the information through the encoder
-  local enc_input = nn.JoinTable(1, 1)
-  (
-    {
-      nn.View(-1, read_size ^ 2)(nn.SelectTable(1)(read)),
-      nn.View(-1, read_size ^ 2)(nn.SelectTable(2)(read)),
-      nn.View(-1, hidden_size)(h_dec)
-    }
-  )
+  local enc_input
+  if self.use_attention then
+    enc_input = nn.JoinTable(1, 1)
+    (
+      {
+        nn.View(-1, read_size ^ 2)(nn.SelectTable(1)(read)),
+        nn.View(-1, read_size ^ 2)(nn.SelectTable(2)(read)),
+        nn.View(-1, hidden_size)(h_dec)
+      }
+    )
+  else
+    enc_input = nn.JoinTable(1, 1)
+    (
+      {
+        nn.View(-1, height * width)(nn.SelectTable(1)(read)),
+        nn.View(-1, height * width)(nn.SelectTable(2)(read)),
+        nn.View(-1, hidden_size)(h_dec)
+      }
+    )
+  end
+
   local next_state = encoder_rnn({enc_input, h_enc, c_enc})
 
   local next_h_enc = nn.SelectTable(1)(next_state)
   local next_c_enc = nn.SelectTable(2)(next_state)
 
-  local att_params = nn.NarrowTable(3, 4)(read)
+  local encoder_outputs = {next_h_enc, next_c_enc}
 
-  local encoder_outputs = {next_h_enc, next_c_enc, att_params}
+  local att_params
+
+  if self.use_attention then
+    att_params = nn.NarrowTable(3, 4)(read)
+    encoder_outputs[#encoder_outputs + 1] = att_params
+  end
+
 
   return nn.gModule(encoder_inputs, encoder_outputs)
 end
 
-function DrawAttention:create_decoder(options)
+function Draw:create_decoder(options)
   -- Constant initialization
   local write_size = options.write_size
 
@@ -367,21 +464,35 @@ function DrawAttention:create_decoder(options)
     name = 'Write'}
 
   -- Write/Add the result to the canvas
+
+  local wt
+  if self.use_attention then
+    wt = nn.SelectTable(1)(write)
+  else
+    wt = write
+  end
+
+  wt:annotate{name = 'Write value at time t'}
   local new_canvas = nn.CAddTable()
   (
     {
       canvas,
-      nn.SelectTable(1)(write)
+      wt
     }
   )
-  local att_params = nn.NarrowTable(2, 4)(write)
 
-  local decoder_output = {new_canvas, next_h_dec, next_c_dec, att_params}
+  local att_params
+  local decoder_output = {new_canvas, next_h_dec, next_c_dec}
+  if self.use_attention then
+    att_params = nn.NarrowTable(2, 4)(write)
+    decoder_output[#decoder_output + 1] = att_params
+  end
+
 
   return nn.gModule(decoder_input, decoder_output)
 end
 
-function DrawAttention:Sampler(hidden_size, read_size, latent_size)
+function Draw:Sampler(hidden_size, latent_size)
   local h_enc = nn.Identity()()
 
   -- Sample from the distribution
@@ -398,7 +509,7 @@ function DrawAttention:Sampler(hidden_size, read_size, latent_size)
   return nn.gModule({h_enc}, {z, mu_z, log_sigma_z})
 end
 
-function DrawAttention:ErrorImage()
+function Draw:ErrorImage()
   local x = nn.Identity()()
   local prev_canvas = nn.Identity()()
 
@@ -407,7 +518,7 @@ function DrawAttention:ErrorImage()
   return nn.gModule({x, prev_canvas}, {output})
 end
 
-function DrawAttention:read(options, img_size, N)
+function Draw:read(options, img_size, N)
   local x = nn.Identity()()
   local xHat = nn.Identity()()
   local h_dec_prev = nn.Identity()()
@@ -415,70 +526,92 @@ function DrawAttention:read(options, img_size, N)
   local height = img_size[#img_size - 1]
   local width = img_size[#img_size]
 
-  local width_indices = nn.Constant(torch.range(1, width))(x)
-  local height_indices = nn.Constant(torch.range(1, height))(x)
+  local read_input
+  local read_output
 
-  local read_att_params = self:attention_parameters(options, width, height, N)(h_dec_prev)
+  if self.use_attention then
+    read_input = {x, xHat, h_dec_prev}
 
-  local gx = nn.SelectTable(1)(read_att_params)
-  local gy = nn.SelectTable(2)(read_att_params)
-  local var = nn.SelectTable(3)(read_att_params)
-  local delta = nn.SelectTable(4)(read_att_params)
-  local gamma = nn.SelectTable(5)(read_att_params)
+    local width_indices = nn.Constant(torch.range(1, width))(x)
+    local height_indices = nn.Constant(torch.range(1, height))(x)
 
-  local fx = self:create_filterbank(options, width, N)({gx, delta, var, width_indices})
-  local fy = self:create_filterbank(options, height, N)({gy, delta, var, height_indices})
+    local read_att_params = self:attention_parameters(options, width, height, N)(h_dec_prev)
 
-  local gamma_mat = nn.Replicate(N * N, 1, 1)(gamma)
-  - nn.Copy(nil, nil, true)
-  - nn.View(-1, N, N)
+    local gx = nn.SelectTable(1)(read_att_params)
+    local gy = nn.SelectTable(2)(read_att_params)
+    local var = nn.SelectTable(3)(read_att_params)
+    local delta = nn.SelectTable(4)(read_att_params)
+    local gamma = nn.SelectTable(5)(read_att_params)
 
-  local read_patch_y = nn.MM(false, false)({fy, x})
-  local read_patch_xy = nn.MM(false, true)({read_patch_y, fx})
-  local x_patch = nn.CMulTable()({read_patch_xy, gamma_mat})
+    local fx = self:create_filterbank(options, width, N)({gx, delta, var, width_indices})
+    local fy = self:create_filterbank(options, height, N)({gy, delta, var, height_indices})
 
-  local error_patch_y = nn.MM(false, false)({fy, xHat})
-  local error_patch_xy = nn.MM(false, true)({error_patch_y, fx})
-  local error_patch = nn.CMulTable()({error_patch_xy, gamma_mat})
+    local gamma_mat = nn.Replicate(N * N, 1, 1)(gamma)
+    - nn.Copy(nil, nil, true)
+    - nn.View(-1, N, N)
 
-  return nn.gModule({x, xHat, h_dec_prev}, {x_patch, error_patch, gx, gy, var, delta})
+    local read_patch_y = nn.MM(false, false)({fy, x})
+    local read_patch_xy = nn.MM(false, true)({read_patch_y, fx})
+    local x_patch = nn.CMulTable()({read_patch_xy, gamma_mat})
+
+    local error_patch_y = nn.MM(false, false)({fy, xHat})
+    local error_patch_xy = nn.MM(false, true)({error_patch_y, fx})
+    local error_patch = nn.CMulTable()({error_patch_xy, gamma_mat})
+
+    read_output = {x_patch, error_patch, gx, gy, var, delta}
+  else
+    read_input = {x, xHat}
+    read_output = {nn.Identity()(x), nn.Identity()(xHat)}
+  end
+
+  return nn.gModule(read_input, read_output)
 end
 
-function DrawAttention:write(options, img_size, N)
+function Draw:write(options, img_size, N)
   local h_dec = nn.Identity()()
 
   local height = img_size[#img_size - 1]
   local width = img_size[#img_size]
 
-  local width_indices = nn.Constant(torch.range(1, width))(h_dec)
-  local height_indices = nn.Constant(torch.range(1, height))(h_dec)
+  local write_input = {h_dec}
+  local write_output
+  if self.use_attention then
+    local width_indices = nn.Constant(torch.range(1, width))(h_dec)
+    local height_indices = nn.Constant(torch.range(1, height))(h_dec)
 
-  local write_att_params = self:attention_parameters(options, width, height, N)(h_dec)
+    local write_att_params = self:attention_parameters(options, width, height, N)(h_dec)
 
-  local gx = nn.SelectTable(1)(write_att_params)
-  local gy = nn.SelectTable(2)(write_att_params)
-  local var = nn.SelectTable(3)(write_att_params)
-  local delta = nn.SelectTable(4)(write_att_params)
-  local gamma = nn.SelectTable(5)(write_att_params)
+    local gx = nn.SelectTable(1)(write_att_params)
+    local gy = nn.SelectTable(2)(write_att_params)
+    local var = nn.SelectTable(3)(write_att_params)
+    local delta = nn.SelectTable(4)(write_att_params)
+    local gamma = nn.SelectTable(5)(write_att_params)
 
-  local fx = self:create_filterbank(options, width, N)({gx, delta, var, width_indices})
-  local fy = self:create_filterbank(options, height, N)({gy, delta, var, height_indices})
+    local fx = self:create_filterbank(options, width, N)({gx, delta, var, width_indices})
+    local fy = self:create_filterbank(options, height, N)({gy, delta, var, height_indices})
 
-  local gamma_mat = nn.Replicate(width * height, 1, 1)(gamma)
-  - nn.Copy(nil, nil, true)
-  - nn.View(-1, height, width)
+    local gamma_mat = nn.Replicate(width * height, 1, 1)(gamma)
+    - nn.Copy(nil, nil, true)
+    - nn.View(-1, height, width)
 
-  local wt = nn.Linear(options.hidden_size, N * N)(h_dec)
+    local wt = nn.Linear(options.hidden_size, N * N)(h_dec)
     - nn.View(-1, N, N)
 
-  local write_patch_y = nn.MM(true, false)({fy, wt})
-  local write_patch_xy = nn.MM(false, false)({write_patch_y, fx})
-  local write_result = nn.CDivTable()({write_patch_xy, gamma_mat})
+    local write_patch_y = nn.MM(true, false)({fy, wt})
+    local write_patch_xy = nn.MM(false, false)({write_patch_y, fx})
+    local write_result = nn.CDivTable()({write_patch_xy, gamma_mat})
 
-  return nn.gModule({h_dec}, {write_result, gx, gy, var, delta})
+    write_output = {write_result, gx, gy, var, delta}
+  else
+    local wt = nn.Linear(options.hidden_size, height * width)(h_dec)
+    - nn.View(-1, height, width)
+    write_output = {wt}
+  end
+
+  return nn.gModule(write_input, write_output)
 end
 
-function DrawAttention:attention_parameters(options, width, height, N)
+function Draw:attention_parameters(options, width, height, N)
   local h_dec = nn.Identity()()
 
   local hidden_size = options.hidden_size
@@ -501,7 +634,7 @@ function DrawAttention:attention_parameters(options, width, height, N)
   return nn.gModule({h_dec}, {gx, gy, var, delta, gamma})
 end
 
-function DrawAttention:create_filterbank(options, dim_size, N)
+function Draw:create_filterbank(options, dim_size, N)
   local batch_size = options.batch_size
 
   -- The inputs to the filter bank function
@@ -579,4 +712,4 @@ function DrawAttention:create_filterbank(options, dim_size, N)
   return nn.gModule({g, delta, var, idx}, {filter_mat})
 end
 
-return M.DrawAttention
+return M.Draw

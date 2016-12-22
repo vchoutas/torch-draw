@@ -4,8 +4,10 @@ require('image')
 local utils = {}
 
 function utils.center2Corners(g, delta, N, dim_size)
-  local p1 = math.max(math.floor(g + (1 -  N/ 2 - 0.5) * delta), 1)
-  local p2 = math.min(math.ceil(g + (N / 2 - 0.5) * delta), dim_size)
+  local p1 = math.floor(g + (1 -  N/ 2 - 0.5) * delta)
+  p1 = math.max(math.min(p1, dim_size), 1)
+  local p2 = math.ceil(g + (N / 2 - 0.5) * delta)
+  p2 = math.max(math.min(p2, dim_size), 1)
   return p1, p2
 end
 

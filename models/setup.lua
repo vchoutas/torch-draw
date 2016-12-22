@@ -1,7 +1,6 @@
 local nn = require('nn')
 
-local draw_no_attention = require('models/draw_no_attention')
-local DrawAttention = require('models/draw_attention')
+local Draw = require('models/draw')
 
 local utils = require('utils')
 local model_utils = require('models/model_utils')
@@ -13,16 +12,19 @@ function M.setup(options, use_cuda, mode)
     print('===> Creating DRAW model..')
   end
 
+  if use_cuda then
+    require('cutorch')
+    require('cunn')
+    if options.backend == 'cudnn' then
+      require('cudnn')
+    end
+  end
+
   if mode == nil then
     mode = 'training'
   end
 
-  local model
-  if options.use_attention == 'true' then
-    model = DrawAttention(options, mode)
-  else
-    mode, encoder, decoderl = draw_no_attention.create_model()
-  end
+  local model = Draw(options, mode)
 
   if options.verbose then
     print('===> Finished creating DRAW model..')

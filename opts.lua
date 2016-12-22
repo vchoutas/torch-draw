@@ -33,6 +33,7 @@ function M.parse(arg)
   cmd:option('--display', false, 'Display the reconstructed images')
   cmd:option('--save_image', false, 'Save the images produced')
   cmd:option('--log_file', 'loss_log.txt', 'The file where the training loss will be saved')
+  cmd:option('--debug', 'false', 'Debug mode for nngraph')
 
   -- Options used to specify the structure of the network
   cmd:option('--latent_size', 100, 'The size of the latent space Z')
