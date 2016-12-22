@@ -50,12 +50,25 @@ The **--save_image** option must be passed in order to save the images.
 
 Some results for training the script with the options mentioned are shown in the next image:
 
+## DRAW without Attention
 <p align="center">
-  <img src="https://cloud.githubusercontent.com/assets/5918727/20938617/6efabe4e-bbf4-11e6-97f5-6db976ef9a29.gif" alt="DRAW Example results"/>
+  <img src="https://cloud.githubusercontent.com/assets/5918727/21425746/93379cb2-c853-11e6-9431-0bfeb29ef1b9.gif"
+  alt="DRAW without attention results"/>
+</p>
+
+## DRAW with Attention
+<p align="center">
+  <img src="https://cloud.githubusercontent.com/assets/5918727/21425681/55e9006c-c853-11e6-96d1-2dfb79796d76.gif"
+  alt="DRAW with attention results"/>
+</p>
+
+## Sampling from the latent space
+<p align="center">
+  <img src="https://cloud.githubusercontent.com/assets/5918727/21425788/d33fe72e-c853-11e6-9520-a2c3a2523529.gif"
+  alt="Latent space sampling"/>
 </p>
 
 # TODOs
 
 - Add SVHN dataset and results
 - Implement attention module with spatial transformers
-- Add results from sampling from the latent space
