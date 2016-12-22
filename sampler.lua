@@ -4,7 +4,7 @@ local nn = require('nn')
 torch.setdefaulttensortype('torch.FloatTensor')
 torch.manualSeed(1)
 
-local DrawAttention = require('models/draw_attention')
+local Draw = require('models/draw')
 local utils = require('utils')
 local model_utils = require('models/model_utils')
 
@@ -39,8 +39,12 @@ local hidden_size = options.hidden_size
 local img_size = options.img_size
 
 
+local use_attention = options.use_attention == 'true'
+
+local model_folder = paths.concat(options.model_folder, use_attention
+  and 'attention' or 'no_attention')
 -- Load the decoder
-local decoder_path = paths.concat(options.model_folder, 'decoder.t7')
+local decoder_path = paths.concat(model_folder, 'decoder.t7')
 local decoder = torch.load(decoder_path)
 
 print('===> Unrolling model in time...')
@@ -48,13 +52,13 @@ local unrolled_decoder = model_utils.clone_model(decoder, T)
 unrolled_decoder[1], learnedParams = model_utils.addLearnedBias(options, unrolled_decoder[1], 'validation')
 
 local params, _ = learnedParams:parameters()
-local canvas0Path = paths.concat(options.model_folder, 'canvas0.t7')
+local canvas0Path = paths.concat(model_folder, 'canvas0.t7')
 
 -- Load the initial canvas and decoder state from the file
 local storedCanvas = torch.load(canvas0Path)
 params[1]:copy(storedCanvas)
 
-local hDec0 = paths.concat(options.model_folder, 'hDec0.t7')
+local hDec0 = paths.concat(model_folder, 'hDec0.t7')
 
 local storedH0 = torch.load(hDec0)
 params[2]:copy(storedH0)
@@ -88,13 +92,27 @@ local c_dec = {[0] = c0}
 local inputs
 
 local img_seq = {}
+
+local canvas2Img = nn.Sequential():add(nn.Sigmoid())
+if use_cuda then
+ canvas2Img = canvas2Img:cuda()
+end
+
 for t = 1, T do
   inputs = {z:normal(), canvas[t - 1], h_dec[t - 1], c_dec[t - 1]}
 
   canvas[t], h_dec[t], c_dec[t], att_params = table.unpack(unrolled_decoder[t]:forward(inputs))
+  img = canvas2Img:forward(canvas[t])
 
-  local rgb_canvas = utils.toRGB(canvas[t]):float()
-  local displayImg = utils.drawAttentionRect(write_size, rgb_canvas, att_params, {255, 0, 0})
+  local rgb_canvas = utils.toRGB(img):float()
+
+  local displayImg
+  if use_attention then
+    displayImg = utils.drawAttentionRect(write_size, rgb_canvas, att_params, {255, 0, 0})
+  else
+    displayImg = rgb_canvas
+  end
+
   img_seq[t]  = image.toDisplayTensor(displayImg, 2, options.img_per_row)
 
   if window ~= nil then
