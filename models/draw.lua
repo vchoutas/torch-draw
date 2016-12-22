@@ -241,7 +241,7 @@ function Draw:save_model(options)
   if not paths.dirp(model_folder) and not paths.mkdir(model_folder) then
     cmd:error('Error: Unable to create model directory: ' .. model_folder '\n')
   end
-  print('====> Saving DRAW model at t = 1...')
+  print('====> Saving DRAW model')
   local draw_path = paths.concat(model_folder, 'draw_t0.t7')
   torch.save(draw_path, self.unrolled_model[1])
 

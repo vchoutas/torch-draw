@@ -123,7 +123,8 @@ for t = 1, T do
   sys.sleep(0.1)
 end
 
-local img_folder = options.img_folder
+local img_folder = paths.concat(options.img_folder, use_attention and 'attention' or
+  'no_attention')
 if not paths.dirp(img_folder) and not paths.mkdir(img_folder) then
   cmd:error('Error: Unable to create image directory: ' .. img_folder '\n')
 end
