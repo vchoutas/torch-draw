@@ -51,18 +51,22 @@ The **--save_image** option must be passed in order to save the images.
 Some results for training the script with the options mentioned are shown in the next image:
 
 ## DRAW without Attention
+### MNIST
 <p align="center">
   <img src="https://cloud.githubusercontent.com/assets/5918727/21425746/93379cb2-c853-11e6-9431-0bfeb29ef1b9.gif"
   alt="DRAW without attention results"/>
 </p>
 
 ## DRAW with Attention
+### MNIST
 <p align="center">
   <img src="https://cloud.githubusercontent.com/assets/5918727/21425681/55e9006c-c853-11e6-96d1-2dfb79796d76.gif"
   alt="DRAW with attention results"/>
 </p>
 
 ## Sampling from the latent space
+### MNIST
+
 <p align="center">
   <img src="https://cloud.githubusercontent.com/assets/5918727/21425788/d33fe72e-c853-11e6-9520-a2c3a2523529.gif"
   alt="Latent space sampling"/>
