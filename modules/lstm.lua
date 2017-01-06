@@ -18,10 +18,10 @@ function M.create_lstm(options, input_size, hidden_size)
   local inputs = {x, h_prev, c_prev}
 
   -- The input to hidden transition
-  local i2h = nn.Linear(input_size, 4 * hidden_size, not use_layer_norm)(x)
+  local i2h = nn.Linear(input_size, 4 * hidden_size, false)(x)
 
   -- The hidden to hidden transition
-  local h2h = nn.Linear(hidden_size, 4 * hidden_size, not use_layer_norm)(h_prev)
+  local h2h = nn.Linear(hidden_size, 4 * hidden_size, false)(h_prev)
 
   local affine_input = use_layer_norm and {
       nn.LayerNormalization(4 * hidden_size)(i2h),
@@ -30,9 +30,7 @@ function M.create_lstm(options, input_size, hidden_size)
     or {i2h, h2h}
 
   -- Add the transitions
-  local input = use_layer_norm
-    and nn.Add(4 * hidden_size)(nn.CAddTable()(affine_input))
-    or nn.CAddTable()(affine_input)
+  local input =  nn.Add(4 * hidden_size)(nn.CAddTable()(affine_input))
 
   -- Create the input gate
   local in_gate = nn.Narrow(2, 1, hidden_size)(input)
