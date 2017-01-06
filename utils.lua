@@ -23,6 +23,11 @@ function utils.toRGB(batch)
       local height, width = table.unpack(batch:size():totable())
       output = output:resize(1, height, width):repeatTensor(3, 1, 1)
     end
+  else
+    local depth = batch:size(2)
+    if depth < 3 then
+      output = output:repeatTensor(1, 3, 1, 1)
+    end
   end
   return output
 end

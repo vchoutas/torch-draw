@@ -346,14 +346,15 @@ function Draw:create_encoder(options)
   -- The size of each image
   local img_size = options.img_size
 
+  local depth = img_size[#img_size - 2]
   local height = img_size[#img_size - 1]
   local width = img_size[#img_size]
 
   local enc_input_size = hidden_size
   if self.use_attention then
-    enc_input_size = enc_input_size + 2 * read_size * read_size
+    enc_input_size = enc_input_size + 2 * read_size * read_size * depth
   else
-    enc_input_size = enc_input_size + 2 * height * width
+    enc_input_size = enc_input_size + 2 * height * width * depth
   end
   local encoder_rnn = lstm_factory.create_lstm(options, enc_input_size, hidden_size)
 
@@ -388,8 +389,8 @@ function Draw:create_encoder(options)
     enc_input = nn.JoinTable(1, 1)
     (
       {
-        nn.View(-1, read_size ^ 2)(nn.SelectTable(1)(read)),
-        nn.View(-1, read_size ^ 2)(nn.SelectTable(2)(read)),
+        nn.View(-1, read_size ^ 2 * depth)(nn.SelectTable(1)(read)),
+        nn.View(-1, read_size ^ 2 * depth)(nn.SelectTable(2)(read)),
         nn.View(-1, hidden_size)(h_dec)
       }
     )
@@ -397,8 +398,8 @@ function Draw:create_encoder(options)
     enc_input = nn.JoinTable(1, 1)
     (
       {
-        nn.View(-1, height * width)(nn.SelectTable(1)(read)),
-        nn.View(-1, height * width)(nn.SelectTable(2)(read)),
+        nn.View(-1, height * width * depth)(nn.SelectTable(1)(read)),
+        nn.View(-1, height * width * depth)(nn.SelectTable(2)(read)),
         nn.View(-1, hidden_size)(h_dec)
       }
     )
@@ -515,11 +516,37 @@ function Draw:ErrorImage()
   return nn.gModule({x, prev_canvas}, {output})
 end
 
+function Draw:filter_read_op(numChannels)
+  local x = nn.Identity()()
+  local fx = nn.Identity()()
+  local fy = nn.Identity()()
+  local gamma_mat = nn.Identity()()
+
+  local filterInputs = {x, fx, fy, gamma_mat}
+  local channels = {}
+  for c = 1, numChannels do
+    local read_patch_y = nn.MM(false, false)({fy, nn.Select(2, c)(x)})
+    local read_patch_xy = nn.MM(false, true)({read_patch_y, fx})
+    local channel_patch = nn.CMulTable()({read_patch_xy, gamma_mat})
+    channels[c] = nn.Unsqueeze(1, 2)(channel_patch)
+  end
+
+  local patch
+  if #channels > 1 then
+    patch = nn.JoinTable(2, 3)(channels)
+  else
+    patch = channels[1]
+  end
+
+  return nn.gModule(filterInputs, {patch})
+end
+
 function Draw:read(options, img_size, N)
   local x = nn.Identity()()
   local xHat = nn.Identity()()
   local h_dec_prev = nn.Identity()()
 
+  local depth = img_size[#img_size - 2]
   local height = img_size[#img_size - 1]
   local width = img_size[#img_size]
 
@@ -547,13 +574,15 @@ function Draw:read(options, img_size, N)
     - nn.Copy(nil, nil, true)
     - nn.View(-1, N, N)
 
-    local read_patch_y = nn.MM(false, false)({fy, x})
-    local read_patch_xy = nn.MM(false, true)({read_patch_y, fx})
-    local x_patch = nn.CMulTable()({read_patch_xy, gamma_mat})
+    -- local read_patch_y = nn.MM(false, false)({fy, x})
+    -- local read_patch_xy = nn.MM(false, true)({read_patch_y, fx})
+    -- local x_patch = nn.CMulTable()({read_patch_xy, gamma_mat})
+    local x_patch = self:filter_read_op(depth)({x, fx, fy, gamma_mat})
 
-    local error_patch_y = nn.MM(false, false)({fy, xHat})
-    local error_patch_xy = nn.MM(false, true)({error_patch_y, fx})
-    local error_patch = nn.CMulTable()({error_patch_xy, gamma_mat})
+    -- local error_patch_y = nn.MM(false, false)({fy, xHat})
+    -- local error_patch_xy = nn.MM(false, true)({error_patch_y, fx})
+    -- local error_patch = nn.CMulTable()({error_patch_xy, gamma_mat})
+    local error_patch = self:filter_read_op(depth)({xHat, fx, fy, gamma_mat})
 
     read_output = {x_patch, error_patch, gx, gy, var, delta}
   else
@@ -564,9 +593,34 @@ function Draw:read(options, img_size, N)
   return nn.gModule(read_input, read_output)
 end
 
+function Draw:filter_write_op(numChannels)
+  local wt = nn.Identity()()
+  local fx = nn.Identity()()
+  local fy = nn.Identity()()
+  local gamma_mat = nn.Identity()()
+
+  local filterInputs = {wt, fx, fy, gamma_mat}
+  local channels = {}
+  for c = 1, numChannels do
+    local write_patch_y = nn.MM(true, false)({fy, nn.Select(2, c)(wt)})
+    local write_patch_xy = nn.MM(false, false)({write_patch_y, fx})
+    local channel_patch = nn.CDivTable()({write_patch_xy, gamma_mat})
+    channels[c] = nn.Unsqueeze(1, 2)(channel_patch)
+  end
+
+  if #channels > 1 then
+    patch = nn.JoinTable(2, 3)(channels)
+  else
+    patch = channels[1]
+  end
+
+  return nn.gModule(filterInputs, {patch})
+end
+
 function Draw:write(options, img_size, N)
   local h_dec = nn.Identity()()
 
+  local depth = img_size[#img_size - 2]
   local height = img_size[#img_size - 1]
   local width = img_size[#img_size]
 
@@ -591,16 +645,17 @@ function Draw:write(options, img_size, N)
     - nn.Copy(nil, nil, true)
     - nn.View(-1, height, width)
 
-    local wt = nn.Linear(options.hidden_size, N * N)(h_dec)
-    - nn.View(-1, N, N)
+    local wt = nn.Linear(options.hidden_size, depth * N * N)(h_dec)
+    - nn.View(-1, depth, N, N)
 
-    local write_patch_y = nn.MM(true, false)({fy, wt})
-    local write_patch_xy = nn.MM(false, false)({write_patch_y, fx})
-    local write_result = nn.CDivTable()({write_patch_xy, gamma_mat})
+    -- local write_patch_y = nn.MM(true, false)({fy, wt})
+    -- local write_patch_xy = nn.MM(false, false)({write_patch_y, fx})
+    -- local write_result = nn.CDivTable()({write_patch_xy, gamma_mat})
+    local write_result = self:filter_write_op(depth)({wt, fx, fy, gamma_mat})
 
     write_output = {write_result, gx, gy, var, delta}
   else
-    local wt = nn.Linear(options.hidden_size, height * width)(h_dec)
+    local wt = nn.Linear(options.hidden_size, depth * height * width)(h_dec)
     - nn.View(-1, height, width)
     write_output = {wt}
   end

@@ -12,9 +12,17 @@ function Mnist:__init(path)
   -- Convert the data to float and convert it to 0-1 range
   self.train.data = self.train.data:float():div(255)
 
+  local numImgs = self.train.data:size(1)
+  local height = self.train.data:size(2)
+  local width = self.train.data:size(3)
+
+  self.train.data = self.train.data:resize(numImgs, 1, height, width)
+
   self.test = mnist.testdataset()
   -- Convert the data to float and convert it to 0-1 range
+  local numTestImgs = self.test.data:size(1)
   self.test.data = self.test.data:float():div(255)
+  self.test.data = self.test.data:resize(numTestImgs, 1, height, width)
 
   local train_mean = {}
   local train_std = {}

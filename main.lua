@@ -137,14 +137,14 @@ local train_size = dataset.train.size
 local img_per_row = options.img_per_row
 
 
-local test_sample = dataset.train.data:narrow(1, 1, options.batch_size)
+local test_sample = dataset.test.data:narrow(1, 1, options.batch_size)
 
 for e = 1, options.maxEpochs do
   lossSum = 0
   N = 0
 
   -- Iterate over batches
-   for i = 1, train_size, batch_size do
+  for i = 1, train_size, batch_size do
     -- Necessary check in case the batch size does not divide the
     -- training set
     local end_idx = math.min(batch_size, train_size - i)
@@ -205,7 +205,8 @@ for e = 1, options.maxEpochs do
       end
 
       local write_img = image.toDisplayTensor(write_seq[t], 2, img_per_row)
-      local img = image.toDisplayTensor({read_img, write_img}, 5)
+      -- local img = image.toDisplayTensor({read_img, write_img}, 5)
+      local img = torch.cat(read_img, write_img, 3)
 
       if options.display then
         if window ~= nil then
