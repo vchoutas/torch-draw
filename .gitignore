@@ -1,5 +1,9 @@
 *.txt
 
+# Compressed files
+*.tar.gz
+*.gz
+*.zip
 
 # Image Files
 *.png
