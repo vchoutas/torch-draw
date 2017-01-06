@@ -5,11 +5,8 @@ require('dpnn')
 
 local lstm_factory = require('../modules/lstm')
 local model_utils = require('models/model_utils')
-require('../modules/FilterGrid')
-require('../modules/MeanGrid')
+
 require('../modules/GaussianSampler')
-require('../modules/Num2Tensor')
-require('../modules/ExpandAsTensor')
 
 local M = {}
 local Draw = torch.class('Draw', M)
