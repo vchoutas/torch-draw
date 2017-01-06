@@ -36,6 +36,7 @@ function M.parse(arg)
   cmd:option('--debug', 'false', 'Debug mode for nngraph')
 
   -- Options used to specify the structure of the network
+  cmd:option('--layer_norm', 'false', 'Use Layer Normalization for the RNN')
   cmd:option('--latent_size', 100, 'The size of the latent space Z')
   cmd:option('--hidden_size', 256, 'The size of the RNN hidden layer')
   cmd:option('--num_glimpses', 64, 'The number of glimpses for the model')

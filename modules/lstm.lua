@@ -3,9 +3,11 @@ require('nngraph')
 
 local M = {}
 
+require('modules/LayerNormalization')
 
 function M.create_lstm(options, input_size, hidden_size)
 
+  local use_layer_norm = options.layer_norm == 'true'
   -- The input of the LSTM
   local x = nn.Identity()()
   -- The previous hidden state.
@@ -16,13 +18,19 @@ function M.create_lstm(options, input_size, hidden_size)
   local inputs = {x, h_prev, c_prev}
 
   -- The input to hidden transition
-  local i2h = nn.Linear(input_size, 4 * hidden_size)(x)
+  local i2h = nn.Linear(input_size, 4 * hidden_size, false)(x)
 
   -- The hidden to hidden transition
-  local h2h = nn.Linear(hidden_size, 4 * hidden_size)(h_prev)
+  local h2h = nn.Linear(hidden_size, 4 * hidden_size, false)(h_prev)
+
+  local affine_input = use_layer_norm and {
+      nn.LayerNormalization(4 * hidden_size)(i2h),
+      nn.LayerNormalization(4 * hidden_size)(h2h)
+    }
+    or {i2h, h2h}
 
   -- Add the transitions
-  local input = nn.CAddTable()({i2h, h2h})
+  local input =  nn.Add(4 * hidden_size)(nn.CAddTable()(affine_input))
 
   -- Create the input gate
   local in_gate = nn.Narrow(2, 1, hidden_size)(input)
@@ -45,7 +53,10 @@ function M.create_lstm(options, input_size, hidden_size)
   -- The new cell state
   local next_c = nn.CAddTable()({cell_forget, input_write})
 
-  local scaled_cell = nn.Tanh()(next_c)
+  local ln3 = nn.LayerNormalization(hidden_size)
+  local scaled_cell = use_layer_norm
+    and nn.Tanh()(ln3(next_c))
+    or nn.Tanh()(next_c)
   local next_h = nn.CMulTable()({output_gate, scaled_cell})
 
   local outputs = {}

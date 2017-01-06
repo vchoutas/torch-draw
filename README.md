@@ -72,6 +72,10 @@ Some results for training the script with the options mentioned are shown in the
   alt="Latent space sampling"/>
 </p>
 
+# Acknowledgement
+
+- Layer Normalization code: [ryankiros/layer-norm](https://github.com/ryankiros/layer-norm)
+
 # TODOs
 
 - Add SVHN dataset and results
