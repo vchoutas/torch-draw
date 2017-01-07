@@ -114,6 +114,7 @@ local optimState = {
 
 
 local use_attention = options.use_attention == 'true'
+local use_stn = options.use_stn == 'true'
 
 local img_folder = paths.concat(options.img_folder, use_attention and 'attention' or
   'no_attention')
@@ -182,13 +183,13 @@ for e = 1, options.maxEpochs do
     end
 
     local read_seq
-    if use_attention then
+    if use_attention and not use_stn then
       read_seq = utils.drawReadSeq(T, read_size, test_sample,
         read_att_params, {0, 255, 0})
     end
 
     local write_seq
-    if use_attention then
+    if use_attention and not use_stn then
       write_seq = utils.drawWriteSeq(T, write_size, canvas_seq,
         write_att_params, {255, 0, 0})
     else
@@ -198,7 +199,7 @@ for e = 1, options.maxEpochs do
     local img_seq = {}
     for t = 1, T do
       local read_img
-      if use_attention then
+      if use_attention and not use_stn then
         read_img = image.toDisplayTensor(read_seq[t], 2, img_per_row)
       else
         read_img = image.toDisplayTensor(test_sample, 2, img_per_row)

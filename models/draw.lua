@@ -15,6 +15,7 @@ function Draw:__init(options)
   self.options = options
 
   self.use_attention = options.use_attention == 'true'
+  self.use_stn = options.use_stn == 'true'
 
   self:create_model(options)
 
@@ -144,7 +145,7 @@ function Draw:forward(batch)
   local c_dec = {[0] = self.startTensors['c_dec']}
 
   local read_att_params, write_att_params
-  if self.use_attention then
+  if self.use_attention and not self.use_stn then
     read_att_params = {}
     write_att_params = {}
   end
@@ -158,7 +159,7 @@ function Draw:forward(batch)
     local inputs = {batch, canvas[t - 1], h_enc[t - 1], c_enc[t - 1],
       h_dec[t - 1], c_dec[t - 1]}
 
-      if self.use_attention then
+      if self.use_attention  and not self.use_stn then
         canvas[t], h_enc[t], c_enc[t], h_dec[t], c_dec[t], mu[t], logvar[t],
           read_att_params[t], write_att_params[t] =
           table.unpack(self.unrolled_model[t]:forward(inputs))
@@ -195,7 +196,7 @@ function Draw:backward(batch, gradLossX, output)
 
     local gradOutput = {gradCanvas[t], dh_enc[t], dc_enc[t], dh_dec[t], dc_dec[t],
       gradMu[t], gradVar[t]}
-    if self.use_attention then
+    if self.use_attention  and not self.use_stn then
       gradOutput[#gradOutput + 1] = self.gradTensors[5]
       gradOutput[#gradOutput + 1] = self.gradTensors[6]
     end
@@ -291,7 +292,7 @@ function Draw:create_model(options)
   local next_h_enc = nn.SelectTable(1)(encoder_out)
   local next_c_enc = nn.SelectTable(2)(encoder_out)
   local read_att_params
-  if self.use_attention then
+  if self.use_attention and not self.use_stn then
     read_att_params = nn.SelectTable(3)(encoder_out)
   end
 
@@ -314,7 +315,7 @@ function Draw:create_model(options)
   local next_c_dec = nn.SelectTable(3)(decoder_out)
 
   local write_att_params
-  if self.use_attention then
+  if self.use_attention and not self.use_attention then
     write_att_params = nn.SelectTable(4)(decoder_out)
   end
 
@@ -464,7 +465,7 @@ function Draw:create_decoder(options)
   -- Write/Add the result to the canvas
 
   local wt
-  if self.use_attention then
+  if self.use_attention and not self.use_stn then
     wt = nn.SelectTable(1)(write)
   else
     wt = write
@@ -482,8 +483,10 @@ function Draw:create_decoder(options)
   local att_params
   local decoder_output = {new_canvas, next_h_dec, next_c_dec}
   if self.use_attention then
-    att_params = nn.NarrowTable(2, 4)(write)
-    decoder_output[#decoder_output + 1] = att_params
+    if not self.use_stn then
+      att_params = nn.NarrowTable(2, 4)(write)
+      decoder_output[#decoder_output + 1] = att_params
+    end
   end
 
 
@@ -556,35 +559,43 @@ function Draw:read(options, img_size, N)
   if self.use_attention then
     read_input = {x, xHat, h_dec_prev}
 
-    local width_indices = nn.Constant(torch.range(1, width))(x)
-    local height_indices = nn.Constant(torch.range(1, height))(x)
+    if self.use_stn then
+      local hiddenSize = options.hidden_size
+      local stnHiddenSize = options.stnHiddenSize
+      local read_size = options.read_size
 
-    local read_att_params = self:attention_parameters(options, width, height, N)(h_dec_prev)
+      local read_stn = model_utils.create_stn(hiddenSize, stnHiddenSize,
+        read_size, read_size)
 
-    local gx = nn.SelectTable(1)(read_att_params)
-    local gy = nn.SelectTable(2)(read_att_params)
-    local var = nn.SelectTable(3)(read_att_params)
-    local delta = nn.SelectTable(4)(read_att_params)
-    local gamma = nn.SelectTable(5)(read_att_params)
+      local x_patch = read_stn({x, h_dec_prev})
+      local error_patch = read_stn({xHat, h_dec_prev})
 
-    local fx = self:create_filterbank(options, width, N)({gx, delta, var, width_indices})
-    local fy = self:create_filterbank(options, height, N)({gy, delta, var, height_indices})
+      read_output = {x_patch, error_patch}
+    else
+      local width_indices = nn.Constant(torch.range(1, width))(x)
+      local height_indices = nn.Constant(torch.range(1, height))(x)
 
-    local gamma_mat = nn.Replicate(N * N, 1, 1)(gamma)
-    - nn.Copy(nil, nil, true)
-    - nn.View(-1, N, N)
+      local read_att_params = self:attention_parameters(options, width, height, N)(h_dec_prev)
 
-    -- local read_patch_y = nn.MM(false, false)({fy, x})
-    -- local read_patch_xy = nn.MM(false, true)({read_patch_y, fx})
-    -- local x_patch = nn.CMulTable()({read_patch_xy, gamma_mat})
-    local x_patch = self:filter_read_op(depth)({x, fx, fy, gamma_mat})
+      local gx = nn.SelectTable(1)(read_att_params)
+      local gy = nn.SelectTable(2)(read_att_params)
+      local var = nn.SelectTable(3)(read_att_params)
+      local delta = nn.SelectTable(4)(read_att_params)
+      local gamma = nn.SelectTable(5)(read_att_params)
 
-    -- local error_patch_y = nn.MM(false, false)({fy, xHat})
-    -- local error_patch_xy = nn.MM(false, true)({error_patch_y, fx})
-    -- local error_patch = nn.CMulTable()({error_patch_xy, gamma_mat})
-    local error_patch = self:filter_read_op(depth)({xHat, fx, fy, gamma_mat})
+      local fx = self:create_filterbank(options, width, N)({gx, delta, var, width_indices})
+      local fy = self:create_filterbank(options, height, N)({gy, delta, var, height_indices})
 
-    read_output = {x_patch, error_patch, gx, gy, var, delta}
+      local gamma_mat = nn.Replicate(N * N, 1, 1)(gamma)
+      - nn.Copy(nil, nil, true)
+      - nn.View(-1, N, N)
+
+      local x_patch = self:filter_read_op(depth)({x, fx, fy, gamma_mat})
+
+      local error_patch = self:filter_read_op(depth)({xHat, fx, fy, gamma_mat})
+
+      read_output = {x_patch, error_patch, gx, gy, var, delta}
+    end
   else
     read_input = {x, xHat}
     read_output = {nn.Identity()(x), nn.Identity()(xHat)}
@@ -627,36 +638,43 @@ function Draw:write(options, img_size, N)
   local write_input = {h_dec}
   local write_output
   if self.use_attention then
-    local width_indices = nn.Constant(torch.range(1, width))(h_dec)
-    local height_indices = nn.Constant(torch.range(1, height))(h_dec)
+    local hiddenSize = options.hidden_size
+    local wt = nn.Linear(hiddenSize, depth * N * N)(h_dec)
+      - nn.View(-1, depth, N, N)
 
-    local write_att_params = self:attention_parameters(options, width, height, N)(h_dec)
+    if self.use_stn then
+      local stnHiddenSize = options.stnHiddenSize
+      local write_stn = model_utils.create_stn(hiddenSize, stnHiddenSize, height, width)
+      local write_result = write_stn({wt, h_dec})
 
-    local gx = nn.SelectTable(1)(write_att_params)
-    local gy = nn.SelectTable(2)(write_att_params)
-    local var = nn.SelectTable(3)(write_att_params)
-    local delta = nn.SelectTable(4)(write_att_params)
-    local gamma = nn.SelectTable(5)(write_att_params)
+      write_output = {write_result}
+    else
+      local width_indices = nn.Constant(torch.range(1, width))(h_dec)
+      local height_indices = nn.Constant(torch.range(1, height))(h_dec)
 
-    local fx = self:create_filterbank(options, width, N)({gx, delta, var, width_indices})
-    local fy = self:create_filterbank(options, height, N)({gy, delta, var, height_indices})
+      local write_att_params = self:attention_parameters(options, width, height, N)(h_dec)
 
-    local gamma_mat = nn.Replicate(width * height, 1, 1)(gamma)
-    - nn.Copy(nil, nil, true)
-    - nn.View(-1, height, width)
+      local gx = nn.SelectTable(1)(write_att_params)
+      local gy = nn.SelectTable(2)(write_att_params)
+      local var = nn.SelectTable(3)(write_att_params)
+      local delta = nn.SelectTable(4)(write_att_params)
+      local gamma = nn.SelectTable(5)(write_att_params)
 
-    local wt = nn.Linear(options.hidden_size, depth * N * N)(h_dec)
-    - nn.View(-1, depth, N, N)
+      local fx = self:create_filterbank(options, width, N)({gx, delta, var, width_indices})
+      local fy = self:create_filterbank(options, height, N)({gy, delta, var, height_indices})
 
-    -- local write_patch_y = nn.MM(true, false)({fy, wt})
-    -- local write_patch_xy = nn.MM(false, false)({write_patch_y, fx})
-    -- local write_result = nn.CDivTable()({write_patch_xy, gamma_mat})
-    local write_result = self:filter_write_op(depth)({wt, fx, fy, gamma_mat})
+      local gamma_mat = nn.Replicate(width * height, 1, 1)(gamma)
+      - nn.Copy(nil, nil, true)
+      - nn.View(-1, height, width)
 
-    write_output = {write_result, gx, gy, var, delta}
+
+      local write_result = self:filter_write_op(depth)({wt, fx, fy, gamma_mat})
+
+      write_output = {write_result, gx, gy, var, delta}
+    end
   else
     local wt = nn.Linear(options.hidden_size, depth * height * width)(h_dec)
-    - nn.View(-1, height, width)
+    - nn.View(-1, depth, height, width)
     write_output = {wt}
   end
 
