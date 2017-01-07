@@ -42,6 +42,8 @@ function M.parse(arg)
   cmd:option('--num_glimpses', 64, 'The number of glimpses for the model')
   cmd:option('--read_size', 2, 'The size of the read patch')
   cmd:option('--write_size', 5, 'The size of the write patch')
+  cmd:option('--use_stn', 'true', 'Use Spatial Transformers instead of the DRAW attention module')
+  cmd:option('--stnHiddenSize', 32, 'The size of the hidden layer for the ST Localization Network')
 
   cmd:option('--use_attention', 'true', 'Use DRAW with attention')
 
