@@ -13,6 +13,7 @@ The following packages are necessary to run the script:
 - [torch/nngraph](https://github.com/torch/nngraph)
 - [torch/optim](https://github.com/torch/optim)
 - [torch/image](https://github.com/torch/image)
+- Spatial Transformers [qassemoquab/stnbhwd](https://github.com/qassemoquab/stnbhwd)
 - [Element-Research/dpnn](https://github.com/Element-Research/dpnn)
 
 

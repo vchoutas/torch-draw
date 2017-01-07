@@ -1,4 +1,5 @@
 require('nn')
+require('stn')
 
 local model_utils = {}
 
@@ -91,5 +92,51 @@ function model_utils.addLearnedBias(options, model, mode)
 
   return updatedModel, learnedParams
 end
+
+function model_utils.create_stn(hiddenSize, stnHiddenSize, height, width)
+  -- The network input should be {h_t, featureMap}
+  local spatialTransformer = nn.Sequential()
+
+  -- The localisation network
+  local locNet = nn.Sequential()
+  locNet:add(nn.Linear(hiddenSize, stnHiddenSize))
+  locNet:add(nn.ReLU(true))
+
+  -- The transformation layer outputs 3 parameters:
+  -- The scale sigma and the translation parameters tx, ty
+  local transformLayer = nn.Linear(stnHiddenSize, 3)
+  -- Initialize the transformation layer to the identity transformation
+  transformLayer.weight:zero()
+  local bias = torch.Tensor(3):zero()
+  bias[1] = 1
+  transformLayer.bias:copy(bias)
+
+  locNet:add(transformLayer)
+
+  local useRot = false
+  local useScale = true
+  local useTranslation = true
+  -- This module generates the transformation matrix as a composition
+  -- of a scale and a translation transformation
+  locNet:add(nn.AffineTransformMatrixGenerator(useRot, useScale, useTranslation))
+  locNet:add(nn.AffineGridGeneratorBHWD(height, width))
+
+  -- This network transposes the input to BHWD for the bilinear sampler
+  local transposeNet = nn.Sequential()
+  transposeNet:add(nn.Identity())
+  transposeNet:add(nn.Transpose({2, 3}, {3, 4}))
+
+  local parallelNet = nn.ParallelTable()
+  parallelNet:add(transposeNet)
+  parallelNet:add(locNet)
+
+  spatialTransformer:add(parallelNet)
+  spatialTransformer:add(nn.BilinearSamplerBHWD())
+
+  spatialTransformer:add(nn.Transpose({3, 4}, {2, 3}))
+
+  return spatialTransformer
+end
+
 
 return model_utils
